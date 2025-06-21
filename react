@@ -1,0 +1,171 @@
+import React, { useState, useEffect } from "react";
+
+// Utility to load blog posts from a folder (e.g., /posts/*.md)
+function useBlogPosts() {
+    const [posts, setPosts] = useState([]);
+    useEffect(() => {
+        // In a real setup, use a static site generator or require.context for markdown files
+        // Here, we simulate fetching blog post metadata
+        fetch("/posts/index.json")
+            .then((res) => res.json())
+            .then(setPosts);
+    }, []);
+    return posts;
+}
+
+// Blog post component (renders markdown as HTML)
+function BlogPost({ post }) {
+    const [content, setContent] = useState("");
+    useEffect(() => {
+        fetch(`/posts/${post.filename}`)
+            .then((res) => res.text())
+            .then(setContent);
+    }, [post]);
+    return (
+        <div>
+            <h2>{post.title}</h2>
+            <div dangerouslySetInnerHTML={{ __html: content }} />
+        </div>
+    );
+}
+
+// CAD Viewer using model-viewer web component (for .glb/.gltf files)
+function CADModel({ src, alt }) {
+    return (
+        <model-viewer
+            src={src}
+            alt={alt}
+            camera-controls
+            auto-rotate
+            style={{ width: "100%", height: "400px" }}
+            ar
+        ></model-viewer>
+    );
+}
+
+// About Me section
+function About() {
+    return (
+        <section style={{ maxWidth: 700, margin: "2rem auto", textAlign: "center" }}>
+            <img src="IMG_6334.jpg" alt="Samir Ahmed" style={{ width: 160, borderRadius: "50%", marginBottom: 16 }} />
+            <h1>Samir Ahmed</h1>
+            <p>
+                I'm a student at <a href="https://www.ucmerced.edu/" target="_blank" rel="noopener noreferrer">UC Merced</a> passionate about engineering, design, and technology. I love building hardware/software projects, exploring finance, and learning new things.
+            </p>
+        </section>
+    );
+}
+
+// Skills section
+function Skills() {
+    const skills = [
+        "C/C++", "Python", "JavaScript", "React", "Arduino", "3D Printing", "CAD (Fusion 360)", "ROS", "OpenCV", "Linux"
+    ];
+    return (
+        <section style={{ maxWidth: 700, margin: "2rem auto" }}>
+            <h1>Skills</h1>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                {skills.map((s, i) => (
+                    <span key={i} style={{ background: "#eee", borderRadius: 8, padding: "6px 14px", fontSize: 16 }}>{s}</span>
+                ))}
+            </div>
+        </section>
+    );
+}
+
+// Enhanced Projects section with descriptions and links
+function Projects() {
+    const models = [
+        {
+            src: "/models/model1.glb",
+            alt: "6-DOF Robot Arm",
+            title: "6-DOF Robot Arm",
+            desc: "A 3D printed robot arm with 6 degrees of freedom for task automation. Features teleoperation, object detection, and Lidar integration. Based on the open-source PAROL6 robot.",
+            github: "https://github.com/samir-shah-ahmed/robot-arm"
+        },
+        {
+            src: "/models/model2.glb",
+            alt: "Project 2 CAD",
+            title: "Project 2",
+            desc: "Description for project 2.",
+            github: "https://github.com/samir-shah-ahmed"
+        }
+    ];
+    return (
+        <section style={{ maxWidth: 800, margin: "2rem auto" }}>
+            <h1>Projects</h1>
+            {models.map((m, i) => (
+                <div key={i} style={{ marginBottom: 32, background: "#fafafa", borderRadius: 12, padding: 20 }}>
+                    <h3>{m.title}</h3>
+                    <CADModel src={m.src} alt={m.alt} />
+                    <p>{m.desc}</p>
+                    <a href={m.github} target="_blank" rel="noopener noreferrer">GitHub</a>
+                </div>
+            ))}
+        </section>
+    );
+}
+
+// Contact section
+function Contact() {
+    return (
+        <section style={{ maxWidth: 700, margin: "2rem auto", textAlign: "center" }}>
+            <h1>Contact</h1>
+            <p>
+                <a href="mailto:samirshahahmed@duck.com">samirshahahmed@duck.com</a>
+            </p>
+            <a href="/resumefile" download style={{ display: "inline-block", marginTop: 12, background: "#222", color: "#fff", padding: "10px 24px", borderRadius: 8, textDecoration: "none" }}>Download Resume</a>
+        </section>
+    );
+}
+
+// Blog section
+function Blog() {
+    const posts = useBlogPosts();
+    const [selected, setSelected] = useState(null);
+    return (
+        <section>
+            <h1>Blog</h1>
+            <ul>
+                {posts.map((p, i) => (
+                    <li key={i}>
+                        <button onClick={() => setSelected(p)}>{p.title}</button>
+                    </li>
+                ))}
+            </ul>
+            {selected && <BlogPost post={selected} />}
+        </section>
+    );
+}
+
+// Main App
+function App() {
+    const [page, setPage] = useState("about");
+    useEffect(() => {
+        // Load model-viewer script for CAD viewing
+        const script = document.createElement("script");
+        script.type = "module";
+        script.src =
+            "https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js";
+        document.body.appendChild(script);
+        return () => document.body.removeChild(script);
+    }, []);
+    return (
+        <div style={{ fontFamily: "system-ui, sans-serif", background: "#f5f7fa", minHeight: "100vh" }}>
+            <nav style={{ display: "flex", justifyContent: "center", gap: 16, padding: 24, background: "#222", color: "#fff" }}>
+                <button onClick={() => setPage("about")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>About</button>
+                <button onClick={() => setPage("skills")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>Skills</button>
+                <button onClick={() => setPage("projects")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>Projects</button>
+                <button onClick={() => setPage("blog")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>Blog</button>
+                <button onClick={() => setPage("contact")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>Contact</button>
+            </nav>
+            {page === "about" && <About />}
+            {page === "skills" && <Skills />}
+            {page === "projects" && <Projects />}
+            {page === "blog" && <Blog />}
+            {page === "contact" && <Contact />}
+        </div>
+    );
+}
+
+export default App;
