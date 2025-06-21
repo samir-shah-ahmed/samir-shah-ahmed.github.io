@@ -138,9 +138,21 @@ function Blog() {
     );
 }
 
+// Dark mode hook
+function useDarkMode() {
+    const [dark, setDark] = useState(() => {
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    });
+    useEffect(() => {
+        document.body.classList.toggle('dark', dark);
+    }, [dark]);
+    return [dark, setDark];
+}
+
 // Main App
 function App() {
     const [page, setPage] = useState("about");
+    const [dark, setDark] = useDarkMode();
     useEffect(() => {
         // Load model-viewer script for CAD viewing
         const script = document.createElement("script");
@@ -151,19 +163,24 @@ function App() {
         return () => document.body.removeChild(script);
     }, []);
     return (
-        <div style={{ fontFamily: "system-ui, sans-serif", background: "#f5f7fa", minHeight: "100vh" }}>
-            <nav style={{ display: "flex", justifyContent: "center", gap: 16, padding: 24, background: "#222", color: "#fff" }}>
-                <button onClick={() => setPage("about")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>About</button>
-                <button onClick={() => setPage("skills")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>Skills</button>
-                <button onClick={() => setPage("projects")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>Projects</button>
-                <button onClick={() => setPage("blog")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>Blog</button>
-                <button onClick={() => setPage("contact")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>Contact</button>
+        <div style={{ fontFamily: "system-ui, sans-serif", background: dark ? "#181a1b" : "#f5f7fa", minHeight: "100vh", transition: "background 0.5s" }}>
+            <nav style={{ display: "flex", justifyContent: "center", gap: 16, padding: 24, background: dark ? "#111" : "#222", color: "#fff", transition: "background 0.5s" }}>
+                <button onClick={() => setPage("about")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", transition: "color 0.3s" }}>About</button>
+                <button onClick={() => setPage("skills")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", transition: "color 0.3s" }}>Skills</button>
+                <button onClick={() => setPage("projects")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", transition: "color 0.3s" }}>Projects</button>
+                <button onClick={() => setPage("blog")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", transition: "color 0.3s" }}>Blog</button>
+                <button onClick={() => setPage("contact")} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", transition: "color 0.3s" }}>Contact</button>
+                <button onClick={() => setDark(d => !d)} aria-label="Toggle dark mode" style={{ marginLeft: 24, background: dark ? "#333" : "#eee", color: dark ? "#fff" : "#222", border: "none", borderRadius: 8, padding: "6px 16px", fontSize: 16, cursor: "pointer", transition: "background 0.3s, color 0.3s" }}>
+                    {dark ? "☀️ Light" : "🌙 Dark"}
+                </button>
             </nav>
-            {page === "about" && <About />}
-            {page === "skills" && <Skills />}
-            {page === "projects" && <Projects />}
-            {page === "blog" && <Blog />}
-            {page === "contact" && <Contact />}
+            <div className="fadein">
+                {page === "about" && <About />}
+                {page === "skills" && <Skills />}
+                {page === "projects" && <Projects />}
+                {page === "blog" && <Blog />}
+                {page === "contact" && <Contact />}
+            </div>
         </div>
     );
 }
