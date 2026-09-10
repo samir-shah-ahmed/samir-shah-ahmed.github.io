@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="author" content="Samir Ahmed">
   <meta name="description" content="Reverse-engineering a Jane Street ASIC from a raw GDS layout, solving its 122-bit unlock key, and decoding its output.">
-  <title>Reverse-Engineering a Jane Street ASIC — Samir Shah Ahmed</title>
+  <title>Can You Reverse Engineer an ASIC? — Samir Shah Ahmed</title>
   <link rel="stylesheet" href="../stylesheet.css?v=7">
   <style>
     body {
@@ -51,10 +51,12 @@
   <nav class="nav" aria-label="Site navigation"><a href="../index.html">← Samir Ahmed</a></nav>
 
   <main>
-    <h1 class="article-title">Reverse-Engineering a Jane Street ASIC</h1>
+    <h1 class="article-title">Jane Street put out a reverse-engineering puzzle in early August 2026, I decided to take it on with minimal experience, armed with LLMS and the Internet to learn and debug I was able to solve this puzzle in roughly 20 hours of work. I do want to note that part of the rules is that you could not plug in the puzzle directly to an LLM, I made sure to adhere to this.</h1>
     <p class="subtitle">Recovering a netlist from a raw GDS layout, solving for a 122-bit unlock key, and reading out the message underneath.</p>
+      <nav class="nav" aria-label="Puzzle Site"><a href="https://blog.janestreet.com/can-you-reverse-engineer-an-asic/">Jane Street's Website</a></nav>
 
-    <p>Jane Street's 2026 puzzle shipped as <code>puzzle.gds</code> — a raw silicon layout targeting the SkyWater sky130 process, with no schematic and no netlist. The task: figure out what the circuit does, find the input sequence that makes it succeed, and read whatever it says back. Below is the full pipeline, what went wrong along the way, and where an LLM fit into the process.</p>
+
+    <p>We are given <code>puzzle.gds</code> — a raw silicon layout targeting the SkyWater sky130 process, with no schematic and no netlist. The task: is to figure out what the circuit does, find the input sequence that makes it succeed, and read whatever it says back. Below is the full pipeline, what went wrong along the way, and where an LLM fit into the process.</p>
 
     <div class="highlight-box">
       <strong>unlock key</strong> — 122 bits, fed to <code>I</code> one bit per clock cycle, <code>enable</code> held high
