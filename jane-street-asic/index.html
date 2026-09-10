@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="author" content="Samir Ahmed">
+  <meta name="description" content="Reverse-engineering a Jane Street ASIC from a raw GDS layout, solving its 122-bit unlock key, and decoding its output.">
+  <title>Reverse-Engineering a Jane Street ASIC — Samir Shah Ahmed</title>
+  <link rel="stylesheet" href="../stylesheet.css?v=7">
+  <style>
+    body {
+      color: #222;
+      background: #fff;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px 80px;
+      box-sizing: border-box;
+      line-height: 1.6;
+    }
+    .nav { margin-bottom: 30px; font-size: 13px; }
+    .article-title { font-size: 24px; margin: 0 0 4px; }
+    .subtitle { color: #555; font-size: 14px; margin: 0 0 26px; }
+    h2 { font-size: 17px; font-weight: 700; margin: 34px 0 4px; }
+    .section-sub { color: #777; font-size: 13px; margin: 0 0 12px; }
+    p { margin: 0 0 13px; }
+    code, .mono { font-family: "Courier New", Courier, monospace; font-size: .92em; }
+    .highlight-box { background: #ffffd0; border: 1px solid #e8e6b0; padding: 12px 14px; margin: 14px 0 22px; }
+    .keyblock { font-family: "Courier New", Courier, monospace; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; color: #444; margin: 6px 0 12px; }
+    .resultline { font-size: 16px; }
+    .resultline .arrow { color: #888; font-size: 13px; }
+    table.checks { border-collapse: collapse; margin: 10px 0 18px; font-size: 13px; width: 100%; }
+    table.checks td { padding: 5px 10px 5px 0; border-bottom: 1px solid #eee; vertical-align: top; }
+    table.checks td.k { color: #555; width: 58%; }
+    table.checks td.v { font-family: "Courier New", Courier, monospace; font-size: 12px; text-align: right; }
+    ol.pitfalls { margin: 8px 0 14px; padding-left: 20px; }
+    ol.pitfalls li { margin-bottom: 12px; }
+    ol.pitfalls strong { display: block; margin-bottom: 2px; }
+    .svgwrap { margin: 14px 0 20px; }
+    .svgwrap svg { max-width: 100%; height: auto; display: block; }
+    .caption { color: #888; font-size: 12px; margin-top: 6px; }
+    hr { border: 0; border-top: 1px solid #ddd; margin: 34px 0; }
+    footer { margin-top: 46px; font-size: 12px; color: #999; }
+    @media (max-width: 600px) {
+      body { margin-top: 24px; padding: 0 16px 60px; }
+      table.checks td.k, table.checks td.v { display: block; width: auto; text-align: left; }
+      table.checks td.k { border-bottom: 0; padding-bottom: 0; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav" aria-label="Site navigation"><a href="../index.html">← Samir Ahmed</a></nav>
+
+  <main>
+    <h1 class="article-title">Reverse-Engineering a Jane Street ASIC</h1>
+    <p class="subtitle">Recovering a netlist from a raw GDS layout, solving for a 122-bit unlock key, and reading out the message underneath.</p>
+
+    <p>Jane Street's 2026 puzzle shipped as <code>puzzle.gds</code> — a raw silicon layout targeting the SkyWater sky130 process, with no schematic and no netlist. The task: figure out what the circuit does, find the input sequence that makes it succeed, and read whatever it says back. Below is the full pipeline, what went wrong along the way, and where an LLM fit into the process.</p>
+
+    <div class="highlight-box">
+      <strong>unlock key</strong> — 122 bits, fed to <code>I</code> one bit per clock cycle, <code>enable</code> held high
+      <div class="keyblock">0000000101010000100000000000010101010000000000001010000001000001000000100000101000010000000100000010000010010001010000000000</div>
+      <div class="resultline"><span class="arrow">O[7:0] decodes to</span> — <strong>(* TWO STARS *)</strong></div>
+    </div>
+
+    <hr>
+
+    <h2>The pipeline</h2>
+    <p class="section-sub">Four stages, each solving a different problem.</p>
+
+    <div class="svgwrap">
+      <svg viewBox="0 0 760 130" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Four-stage pipeline: extract, analyze, solve, and simulate">
+        <line x1="90" y1="45" x2="670" y2="45" stroke="#ccc" stroke-width="1"/>
+        <circle cx="90" cy="45" r="8" fill="#fff" stroke="#333" stroke-width="1.5"/>
+        <text x="90" y="49" font-family="Arial" font-size="9" fill="#333" text-anchor="middle">1</text>
+        <text x="90" y="78" font-family="Arial" font-size="12" fill="#222" text-anchor="middle" font-weight="bold">Extract</text>
+        <text x="90" y="94" font-family="Arial" font-size="10" fill="#777" text-anchor="middle">GDS → netlist</text>
+        <circle cx="283" cy="45" r="8" fill="#fff" stroke="#333" stroke-width="1.5"/>
+        <text x="283" y="49" font-family="Arial" font-size="9" fill="#333" text-anchor="middle">2</text>
+        <text x="283" y="78" font-family="Arial" font-size="12" fill="#222" text-anchor="middle" font-weight="bold">Analyze</text>
+        <text x="283" y="94" font-family="Arial" font-size="10" fill="#777" text-anchor="middle">netlist → behavior</text>
+        <circle cx="476" cy="45" r="8" fill="#fff" stroke="#333" stroke-width="1.5"/>
+        <text x="476" y="49" font-family="Arial" font-size="9" fill="#333" text-anchor="middle">3</text>
+        <text x="476" y="78" font-family="Arial" font-size="12" fill="#222" text-anchor="middle" font-weight="bold">Solve</text>
+        <text x="476" y="94" font-family="Arial" font-size="10" fill="#777" text-anchor="middle">behavior → key</text>
+        <circle cx="670" cy="45" r="8" fill="#ffffd0" stroke="#333" stroke-width="1.5"/>
+        <text x="670" y="49" font-family="Arial" font-size="9" fill="#333" text-anchor="middle">4</text>
+        <text x="670" y="78" font-family="Arial" font-size="12" fill="#222" text-anchor="middle" font-weight="bold">Simulate</text>
+        <text x="670" y="94" font-family="Arial" font-size="10" fill="#777" text-anchor="middle">key → message</text>
+      </svg>
+    </div>
+
+    <h2>1. Extraction — two independent paths</h2>
+    <p>I used <strong>Magic</strong>, in batch mode, to pull a hierarchical SPICE netlist directly out of <code>puzzle.gds</code>, against the sky130 <code>sky130_fd_sc_hd</code> PDK installed via <strong>volare</strong>. Standard-cell instances keep their library names in the GDS itself, so gate-type recognition came for free — no pattern-matching against a cell library was needed.</p>
+    <p>A single extraction is only as trustworthy as the tool that produced it, so I built a second one from scratch: a custom LVS deck in <strong>KLayout</strong> working directly on raw process layers (nwell, diff, poly, licon, li1, met1–5), with its own MOSFET recognition and no cell-library shortcut. <strong>Netgen</strong> compared the two, and all 7,932 devices matched down to the last transistor — the only residual difference was a cosmetic diode-merge artifact in inert ESD protection structures.</p>
+
+    <div class="svgwrap">
+      <svg viewBox="0 0 760 190" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Magic and KLayout extraction paths compared by Netgen">
+        <rect x="20" y="15" width="160" height="34" fill="#fff" stroke="#333" stroke-width="1.2"/>
+        <text x="100" y="36" font-family="Arial" font-size="11" fill="#222" text-anchor="middle">Magic extraction</text>
+        <line x1="180" y1="32" x2="330" y2="85" stroke="#999" stroke-width="1"/>
+        <rect x="20" y="140" width="160" height="34" fill="#fff" stroke="#333" stroke-width="1.2"/>
+        <text x="100" y="161" font-family="Arial" font-size="11" fill="#222" text-anchor="middle">KLayout extraction</text>
+        <line x1="180" y1="157" x2="330" y2="104" stroke="#999" stroke-width="1"/>
+        <rect x="330" y="68" width="140" height="52" fill="#ffffd0" stroke="#333" stroke-width="1.2"/>
+        <text x="400" y="90" font-family="Arial" font-size="11" fill="#222" text-anchor="middle" font-weight="bold">Netgen LVS</text>
+        <text x="400" y="106" font-family="Arial" font-size="10" fill="#555" text-anchor="middle">compare</text>
+        <line x1="470" y1="94" x2="600" y2="94" stroke="#999" stroke-width="1"/>
+        <rect x="600" y="68" width="140" height="52" fill="#fff" stroke="#333" stroke-width="1.2"/>
+        <text x="670" y="88" font-family="Arial" font-size="11" fill="#222" text-anchor="middle" font-weight="bold">7,932 / 7,932</text>
+        <text x="670" y="104" font-family="Arial" font-size="10" fill="#555" text-anchor="middle">devices match</text>
+      </svg>
+      <div class="caption">Two independently-derived netlists, compared by Netgen — the check that everything downstream depends on.</div>
+    </div>
+
+    <p>Validated first on the repo's trivial warmup circuit — correctly recovered A=254, B=242 for <code>A + B == 496</code> — before touching the real target.</p>
+
+    <table class="checks">
+      <tr><td class="k">Devices — Magic extraction</td><td class="v">7,932</td></tr>
+      <tr><td class="k">Devices — independent KLayout extraction</td><td class="v">7,932</td></tr>
+      <tr><td class="k">Mismatches after LVS</td><td class="v">0 (cosmetic ESD diode merge only)</td></tr>
+    </table>
+
+    <h2>2. Analysis — what the gates compute</h2>
+    <p>A netlist is just a graph of gates and wires; it doesn't say what it means. I wrote a parser for the sky130 <strong>Liberty</strong> (<code>.lib</code>) files to turn each cell name into its actual boolean function and, for flip-flops, its clock/next-state/clear/preset behavior — more robust than reading the behavioral Verilog, which leans on primitives older Yosys frontends can't parse.</p>
+    <p>Tracing the fan-in cone of <code>success</code> pulled in 483 of 722 gates and 79 of 84 flip-flops, plus the <code>I</code> input. Flip-flop inputs turned out to be combinational mixes of several signals, not straight pass-throughs — the signature of an LFSR/CRC-style mixer, not a plain shift-register-and-compare. Nothing is tied to a constant, so the comparison target isn't readable off the gates by hand; it's encoded structurally. That ruled out manual analysis and pointed at a solver.</p>
+    <p>The puzzle's own hint — that part of the design generates output but doesn't affect <code>success</code>, and needs separate simulation — matched exactly. That region sits outside the <code>success</code> cone entirely, built from flip-flops with no simple reset.</p>
+
+    <h2>3. Solving — z3 over the unrolled circuit</h2>
+    <p>I unrolled the circuit cycle-by-cycle into a boolean formula for <strong>z3</strong> — one fresh variable per net per cycle, tied to its driving gate's function — and asked for an input sequence that forces <code>success</code> to 1. Free <code>enable</code> found a working but strange 289-cycle solution; pinning <code>enable = 1</code> throughout — the natural way to run the chip — found a clean <strong>122-cycle</strong> solution in about nine seconds.</p>
+    <p>I cross-checked it two ways: a separate plain-boolean forward simulator, with no SAT involved, re-evaluated the netlist concretely and agreed exactly. Re-solving with each bit individually flipped and blocked showed <strong>121 of the 122 bits are essential</strong> — flipping any one makes <code>success</code> unreachable. Only the last bit is a genuine don't-care.</p>
+
+    <div class="svgwrap">
+      <svg viewBox="0 0 760 70" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="122-bit key with 121 essential bits and one don't-care bit">
+        <text x="0" y="14" font-family="Arial" font-size="10" fill="#777">122-bit key — 121 load-bearing, 1 don't-care</text>
+        <g transform="translate(0,24)">
+          <rect x="0" y="0" width="740" height="16" fill="none" stroke="#333" stroke-width="1"/>
+          <rect x="0" y="0" width="734" height="16" fill="#333"/>
+          <rect x="734" y="0" width="6" height="16" fill="#ffffd0" stroke="#333" stroke-width="1"/>
+        </g>
+        <text x="0" y="58" font-family="Arial" font-size="9" fill="#999">essential bits</text>
+        <text x="700" y="58" font-family="Arial" font-size="9" fill="#999" text-anchor="end">don't-care</text>
+      </svg>
+    </div>
+
+    <table class="checks">
+      <tr><td class="k">Free-enable search</td><td class="v">289 cycles, irregular</td></tr>
+      <tr><td class="k">Enable held high</td><td class="v">122 cycles</td></tr>
+      <tr><td class="k">Solve time</td><td class="v">~9 seconds</td></tr>
+      <tr><td class="k">Load-bearing bits</td><td class="v">121 / 122</td></tr>
+    </table>
+
+    <h2>4. Reading the answer</h2>
+    <p><code>success</code> asserting doesn't hand you a message — it's a single flag, and the byte stream on <code>O[7:0]</code> is computed by a physically separate part of the chip. So the final simulator covers the union of both fan-in cones, and running the key through it streams fifteen bytes on <code>O[7:0]</code>, one per cycle, starting the cycle <code>success</code> first goes high:</p>
+    <p class="mono">28 2a 20 54 57 4f 20 53 54 41 52 53 20 2a 29</p>
+    <p>As ASCII: <strong>(* TWO STARS *)</strong> — valid OCaml comment syntax. Nothing here was ever fabricated or displayed anywhere; a simulator stepped the netlist cycle by cycle and printed the value of eight logic nets each time. Grouping those bits into bytes and reading them as ASCII was my interpretation, not the chip's.</p>
+    <p>Two things corroborate the decode. Wrong keys decode cleanly through the identical simulator: an all-zero input gives <code>EMPTY SKY</code>, other wrong keys give <code>TRY AGAIN</code>. And the two GDS cells sitting inside the hint region, <code>INTERNAL_7</code> and <code>INTERNAL_3</code>, turned out to contain exactly one bare rectangle each on an unrecognized marker layer — no transistors. They're a deliberate visual redaction in the published layout, not real logic; everything needed for <code>O[7:0]</code> was already in the recovered netlist.</p>
+
+    <h2>Where an LLM fit in</h2>
+    <p>I used Claude Code throughout as a pair-programmer for the pipeline itself — the Magic Tcl extraction script, the SPICE and Liberty parsers, the cone-analysis pass, and the z3 unrolling logic — then iterated against real failures instead of getting it right up front. The value wasn't "ask an AI to reverse-engineer a chip"; it was compressing the write-run-debug loop across a stack of unfamiliar tools (Magic's Tcl API, Liberty's quoting conventions, z3's Python bindings), while the actual reverse-engineering judgment — what to extract, what a suspicious cone shape implies, whether a solution is clean — stayed with me. Concretely, that meant validating every stage against the repo's trivial warmup circuit before trusting it on the real target, and several of the bugs below were caught by reading generated code line by line rather than trusting that it ran without errors.</p>
+
+    <h2>What went wrong</h2>
+    <p class="section-sub">Kept here because each one produced a plausible-looking wrong answer before it produced the right one.</p>
+    <ol class="pitfalls">
+      <li><strong>The wrong netgen.</strong> Ubuntu's <code>apt install netgen</code> pulls a 3D FEM mesh generator with the same name, not the VLSI LVS tool — had to remove it and build the real one from source.</li>
+      <li><strong>Liberty parsing, three ways.</strong> Cell/pin names in this PDK's <code>.lib</code> are quoted, not bare, so a naive regex returned empty dictionaries. <code>function : "...";</code> needed a start-of-line anchor or it also matched <code>power_down_function</code>, silently substituting the wrong boolean expression for every gate. And constant-driver cells report their function as the bare literal <code>"0"</code>/<code>"1"</code>, which an identifier-only tokenizer chokes on.</li>
+      <li><strong>Filtered out a real driver.</strong> The constant-value generator was caught by the same filter meant to strip physical-only decap/tap/fill cells, producing a "combinational loop?" error that was actually a missing driver.</li>
+      <li><strong>Dropped a second output pin.</strong> The constant-driver cell has two outputs, <code>HI</code> and <code>LO</code>. An early evaluator only kept the last output pin seen per instance — invisible until the wider output cone needed the dropped one.</li>
+      <li><strong>Not every flip-flop resets.</strong> The output-generator flip-flops have neither clear nor preset. Force-zeroing every flop at cycle 0 corrupted that region's state and produced garbled, non-ASCII output even with the correct key — fixed by simulating a couple of clock edges with reset asserted and letting each flop's real logic settle.</li>
+      <li><strong>Shell variables silently vanishing.</strong> Variables referenced inside a command bridged from the host shell into WSL got stripped before WSL ever saw them, which quietly redirected output to the wrong path mid-session. Fixed by writing real script files and invoking them by path instead of inlining variables.</li>
+    </ol>
+
+    <h2>Summary</h2>
+    <table class="checks">
+      <tr><td class="k">Target</td><td class="v">Jane Street 2026 ASIC puzzle (sky130)</td></tr>
+      <tr><td class="k">Extraction tools</td><td class="v">Magic + KLayout (independent), Netgen</td></tr>
+      <tr><td class="k">Devices matched</td><td class="v">7,932 / 7,932</td></tr>
+      <tr><td class="k">Solver</td><td class="v">z3, cycle-unrolled boolean formula</td></tr>
+      <tr><td class="k">Key length</td><td class="v">122 bits (121 essential)</td></tr>
+      <tr><td class="k">Decoded message</td><td class="v">(* TWO STARS *)</td></tr>
+    </table>
+  </main>
+
+  <footer>Written up from a live extraction pipeline built with Magic, KLayout, Netgen, and z3.</footer>
+</body>
+</html>
